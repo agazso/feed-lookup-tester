@@ -6,7 +6,8 @@ import { FetchFeedUpdateResponse } from '@ethersphere/bee-js/dist/src/modules/fe
 import ora from 'ora'
 import yargs from 'yargs'
 import { feedIndexBeeResponse, incrementBytes, makeBytes, randomByteArray } from './utils'
-const crypto = require('crypto')
+import crypto from 'crypto'
+import fs from 'fs'
 
 const zeros64 = '0000000000000000000000000000000000000000000000000000000000000000'
 const syncPollingTime = 1000 //in ms
@@ -16,6 +17,10 @@ export const testIdentity = {
   privateKey: '634fb5a872396d9693e5c9f9d7233cfa93f395c093371017ff44aa9ae6564cdd',
   publicKey: '03c32bb011339667a487b6c1c35061f15f7edc36aa9a0f8648aba07a4b8bd741b4',
   address: '8d3766440f0d7b949a5e32995d09619a7f86e632',
+}
+
+function formatDateTime(date = new Date()) {
+  return date.toISOString().replace('T', ' ').slice(0, 19)
 }
 
 /**
@@ -205,9 +210,13 @@ function sleep(waitTime: number) {
   const beeWriters: Bee[] = beeWriterUrls.map(url => new Bee(url, { onRequest, onResponse }))
   const beeReaders: Bee[] = beeReaderUrls.map(url => new Bee(url))
 
+  const report: any = {}
+  report.startDate = formatDateTime()
+
   // const topic = randomByteArray(32, topicSeed)
   const topic = crypto.randomBytes(32)
-  console.debug({ topic: Utils.bytesToHex(topic) })
+  report.topic = Utils.bytesToHex(topic)
+  console.debug({ report })
 
   const feedWriters = beeWriters.map(beeWriter => beeWriter.makeFeedWriter('sequence', topic, testIdentity.privateKey))
   const feedReaders = beeReaders.map(beeReader => beeReader.makeFeedReader('sequence', topic, testIdentity.address))
@@ -257,7 +266,8 @@ function sleep(waitTime: number) {
 
     console.log(`Feed update ${i} fetch was successful`)
 
-    console.log({ downloadTimes })
+    console.log(downloadTimes)
+    fs.writeFileSync('report.csv', [report.startDate, report.topic, updates, ...downloadTimes].join(',') + '\n')
 
     // console.log(beeWriterResults(beeWriterUrls, uploadTimes)
     //   + `\n\tSyncing time: ${syncingTime / 1000}s\n`
