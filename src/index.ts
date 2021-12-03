@@ -258,6 +258,8 @@ function sleep(waitTime: number) {
     spinner.text = `Feed update ${i} fetch was successful`
     spinner.stopAndPersist()
 
+    console.log({ downloadTimes })
+
     // console.log(beeWriterResults(beeWriterUrls, uploadTimes)
     //   + `\n\tSyncing time: ${syncingTime / 1000}s\n`
     //   + beeReaderResults(beeReaderUrls, uploadTimes)
