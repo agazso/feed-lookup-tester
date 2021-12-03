@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
-import { Bee, Utils } from '@ethersphere/bee-js'
+import { Bee, BeeError, BeeRequest, BeeResponse, FeedWriter, Reference, Utils } from '@ethersphere/bee-js'
 import { ChunkReference } from '@ethersphere/bee-js/dist/src/feed'
 import { FetchFeedUpdateResponse } from '@ethersphere/bee-js/dist/src/modules/feed'
 import ora from 'ora'
 import yargs from 'yargs'
 import { feedIndexBeeResponse, incrementBytes, makeBytes, randomByteArray } from './utils'
+const crypto = require('crypto')
 
 const zeros64 = '0000000000000000000000000000000000000000000000000000000000000000'
 const syncPollingTime = 1000 //in ms
@@ -19,12 +20,12 @@ export const testIdentity = {
 
 /**
  * Checks whether the fetched resource is the same as expected
- * 
+ *
  * @returns false if there were no errors or the error message
  */
 function fetchDataCheck(
-  updateFetch: FetchFeedUpdateResponse, 
-  expectedFeedRef: ChunkReference, 
+  updateFetch: FetchFeedUpdateResponse,
+  expectedFeedRef: ChunkReference,
   expectedFeedIndex: number,
   beeNodeUrl: string
 ): false | string {
@@ -72,6 +73,17 @@ interface MeasureAyncReturnable {
   returnValue: any,
 }
 
+async function feedWriterUpload(feedWriter: FeedWriter, stamp: string, reference: ChunkReference) {
+  try {
+    const response = await feedWriter.upload(stamp, reference)
+    return response
+  } catch (e: any) {
+    if (e.status === 409) {
+      return reference
+    }
+  }
+}
+
 async function measureAync(hookFunction: () => Promise<any>): Promise<MeasureAyncReturnable> {
   let startTime = new Date().getTime()
   const returnValue = await hookFunction()
@@ -103,6 +115,14 @@ function beeReaderResults(urls: string[], measuredTimes: number[]): string {
   return results.join('\n')
 }
 
+function onRequest(request: BeeRequest) {
+  // console.debug({ request })
+}
+
+function onResponse(response: BeeResponse) {
+  // console.debug({ response })
+}
+
 // eslint-disable-next-line @typescript-eslint/no-extra-semi
 ;(async function root() {
   const argv = await yargs(process.argv.slice(2))
@@ -129,7 +149,7 @@ function beeReaderResults(urls: string[], measuredTimes: number[]): string {
     })
     .option('stamp', {
       alias: 'st',
-      type: 'string',
+      type: 'array',
       describe: 'Postage Batch Stamp ID for bee-writers. By default it is array of zeros',
       default: [
         zeros64,
@@ -155,6 +175,12 @@ function beeReaderResults(urls: string[], measuredTimes: number[]): string {
       describe: 'Attempt to download the feed from the other Bee client on every given amount of feed update',
       default: 1
     })
+    .option('sync-time', {
+      alias: 's',
+      type: 'number',
+      describe: 'Time to wait until data is synced in seconds',
+      default: 40
+    })
     .help('h')
     .alias('h', 'help').epilog(`Testing Ethereum Swarm Feed lookup time`).argv
 
@@ -171,10 +197,13 @@ function beeReaderResults(urls: string[], measuredTimes: number[]): string {
     throw new Error(`Got different amount of bee writer ${beeWriterUrls.length} than stamps ${stamps.length}`)
   }
 
-  const beeWriters: Bee[] = beeWriterUrls.map(url => new Bee(url))
+  const beeWriters: Bee[] = beeWriterUrls.map(url => new Bee(url, { onRequest, onResponse }))
   const beeReaders: Bee[] = beeReaderUrls.map(url => new Bee(url))
 
-  const topic = randomByteArray(32, topicSeed)
+  // const topic = randomByteArray(32, topicSeed)
+  const topic = crypto.randomBytes(32)
+  console.debug({ topic: Utils.bytesToHex(topic) })
+
   const feedWriters = beeWriters.map(beeWriter => beeWriter.makeFeedWriter('sequence', topic, testIdentity.privateKey))
   const feedReaders = beeReaders.map(beeReader => beeReader.makeFeedReader('sequence', topic, testIdentity.address))
 
@@ -182,60 +211,59 @@ function beeReaderResults(urls: string[], measuredTimes: number[]): string {
   const reference = makeBytes(32) // all zeroes
   let downloadIterationIndex = 0
 
+  const spinner = ora()
+  spinner.start()
   for(let i = 0; i < updates; i++) {
-    const spinner = ora(`Upload feed for index ${i}`)
-    spinner.start()
-    
+    spinner.text = `Upload feed for index ${i}`
+
     // create tag for the full sync
     // const tag = await beeWriter.createTag()
     // await feedWriter.upload(stamp, reference, { tag: tag.uid })
     const uploads = await Promise.all(feedWriters.map((feedWriter, i) => {
       const stamp = stamps[i]
-      return measureAync(() => feedWriter.upload(stamp, reference))
+      return measureAync(() => feedWriterUpload(feedWriter, stamp, reference))
     }))
     const uploadTimes = uploads.map(upload => upload.measuredTime)
+  }
+  {
+    // if(++downloadIterationIndex === downloadIteration) {
+    downloadIterationIndex = 0
 
-    if(++downloadIterationIndex === downloadIteration) {
-      downloadIterationIndex = 0
+    const i = updates
+    spinner.text = `Wait for feed update sync at index ${i}`
+    // await waitSyncing(beeWriter, tag.uid)
+    const syncTime = argv['sync-time'] * 1000
+    const { measuredTime: syncingTime } = await measureAync(async () => await new Promise(resolve => setTimeout(resolve, syncTime)))
 
-      spinner.text = `Wait for feed update sync at index ${i}`
-      // await waitSyncing(beeWriter, tag.uid)
-      const { measuredTime: syncingTime } = await measureAync(async () => await new Promise(resolve => setTimeout(resolve, 40000)))
+    spinner.text = `Download feed for index ${i}`
 
-      spinner.text = `Download feed for index ${i}`
+    const downloads = await Promise.all(feedReaders.map(feedReader => measureAync(() => feedReader.download())))
+    const downloadTimes: number[] = []
 
-      const downloads = await Promise.all(feedReaders.map(feedReader => measureAync(() => feedReader.download())))
-      const downloadTimes: number[] = []
-  
-      // check data correctness
-      const checks: (string | false)[] = []
-      downloads.forEach((download, j) => {
-        downloadTimes.push(download.measuredTime)
+    // check data correctness
+    const checks: (string | false)[] = []
+    downloads.forEach((download, j) => {
+      downloadTimes.push(download.measuredTime)
 
-        const url = beeReaderUrls[j]
-        checks.push(fetchDataCheck(download.returnValue, reference, i, url))
-      })
-  
-      spinner.text = `Feed update ${i} fetch was successful`
-      spinner.stopAndPersist()
-  
-      console.log(beeWriterResults(beeWriterUrls, uploadTimes)
-        + `\n\tSyncing time: ${syncingTime / 1000}s\n`
-        + beeReaderResults(beeReaderUrls, uploadTimes)
-      )
+      const url = beeReaderUrls[j]
+      checks.push(fetchDataCheck(download.returnValue, reference, i, url))
+    })
 
-      const errors = checks.filter(check => check)
-      if(errors.length > 0) {
-        console.error(`Some bee nodes couldn't fetch the Feed as expected.\n`
-         + errors.join('\n'))
-      }
-    } else {
-      spinner.text = `Feed update ${i} fetch was successful`
-      spinner.stopAndPersist()
-  
-      console.log(beeWriterResults(beeWriterUrls, uploadTimes))
+    spinner.text = `Feed update ${i} fetch was successful`
+    spinner.stopAndPersist()
+
+    // console.log(beeWriterResults(beeWriterUrls, uploadTimes)
+    //   + `\n\tSyncing time: ${syncingTime / 1000}s\n`
+    //   + beeReaderResults(beeReaderUrls, uploadTimes)
+    // )
+
+    const errors = checks.filter(check => check)
+    if(errors.length > 0) {
+      console.error(`Some bee nodes couldn't fetch the Feed as expected.\n`
+        + errors.join('\n'))
     }
 
     incrementBytes(reference)
   }
-})()
+  spinner.stopAndPersist()
+})().catch(error => console.error({ error }))
