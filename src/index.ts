@@ -216,10 +216,10 @@ function sleep(waitTime: number) {
   const reference = makeBytes(32) // all zeroes
   let downloadIterationIndex = 0
 
-  const spinner = ora()
-  spinner.start()
+  // const spinner = ora()
+  // spinner.start()
   for(let i = 0; i < updates; i++) {
-    spinner.text = `Upload feed for index ${i}`
+    console.log(`Upload feed for index ${i}`)
 
     // create tag for the full sync
     // const tag = await beeWriter.createTag()
@@ -229,19 +229,19 @@ function sleep(waitTime: number) {
       return measureAync(() => feedWriterUpload(feedWriter, stamp, reference))
     }))
     const uploadTimes = uploads.map(upload => upload.measuredTime)
-    spinner.text = `Waiting for ${Math.floor(syncTime / 1000)} secs`
-    await sleep(syncTime)
+    const waitTime = 3000
+    console.log(`Waiting for ${Math.floor(waitTime / 1000)} secs`)
+    await sleep(waitTime)
   }
   {
     // if(++downloadIterationIndex === downloadIteration) {
     downloadIterationIndex = 0
 
     const i = updates
-    spinner.text = `Wait for feed update sync at index ${i}`
-    // await waitSyncing(beeWriter, tag.uid)
+    console.log(`Wait for feed update sync at index ${i}`)
     const { measuredTime: syncingTime } = await measureAync(async () => await new Promise(resolve => setTimeout(resolve, syncTime)))
 
-    spinner.text = `Download feed for index ${i}`
+    console.log(`Download feed for index ${i}`)
 
     const downloads = await Promise.all(feedReaders.map(feedReader => measureAync(() => feedReader.download())))
     const downloadTimes: number[] = []
@@ -255,8 +255,7 @@ function sleep(waitTime: number) {
       checks.push(fetchDataCheck(download.returnValue, reference, i, url))
     })
 
-    spinner.text = `Feed update ${i} fetch was successful`
-    spinner.stopAndPersist()
+    console.log(`Feed update ${i} fetch was successful`)
 
     console.log({ downloadTimes })
 
@@ -273,5 +272,4 @@ function sleep(waitTime: number) {
 
     incrementBytes(reference)
   }
-  spinner.stopAndPersist()
 })().catch(error => console.error({ error }))
