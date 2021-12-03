@@ -267,7 +267,7 @@ function sleep(waitTime: number) {
     console.log(`Feed update ${i} fetch was successful`)
 
     console.log(downloadTimes)
-    fs.writeFileSync('report.csv', [report.startDate, report.topic, updates, ...downloadTimes].join(',') + '\n')
+    fs.appendFileSync('report.csv', [report.startDate, report.topic, updates, ...downloadTimes].join(',') + '\n')
 
     // console.log(beeWriterResults(beeWriterUrls, uploadTimes)
     //   + `\n\tSyncing time: ${syncingTime / 1000}s\n`
