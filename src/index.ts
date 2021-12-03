@@ -237,7 +237,7 @@ function sleep(waitTime: number) {
     // if(++downloadIterationIndex === downloadIteration) {
     downloadIterationIndex = 0
 
-    const i = updates
+    const i = updates - 1
     console.log(`Waiting for ${Math.floor(syncTime / 1000)} secs`)
     await sleep(syncTime)
 
