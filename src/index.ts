@@ -123,6 +123,10 @@ function onResponse(response: BeeResponse) {
   // console.debug({ response })
 }
 
+function sleep(waitTime: number) {
+  return new Promise(resolve => setTimeout(resolve, waitTime))
+}
+
 // eslint-disable-next-line @typescript-eslint/no-extra-semi
 ;(async function root() {
   const argv = await yargs(process.argv.slice(2))
@@ -196,6 +200,7 @@ function onResponse(response: BeeResponse) {
   if(stamps.length !== beeWriterUrls.length) {
     throw new Error(`Got different amount of bee writer ${beeWriterUrls.length} than stamps ${stamps.length}`)
   }
+  const syncTime = argv['sync-time'] * 1000
 
   const beeWriters: Bee[] = beeWriterUrls.map(url => new Bee(url, { onRequest, onResponse }))
   const beeReaders: Bee[] = beeReaderUrls.map(url => new Bee(url))
@@ -224,6 +229,8 @@ function onResponse(response: BeeResponse) {
       return measureAync(() => feedWriterUpload(feedWriter, stamp, reference))
     }))
     const uploadTimes = uploads.map(upload => upload.measuredTime)
+    spinner.text = `Waiting for ${Math.floor(syncTime / 1000)} secs`
+    await sleep(syncTime)
   }
   {
     // if(++downloadIterationIndex === downloadIteration) {
@@ -232,7 +239,6 @@ function onResponse(response: BeeResponse) {
     const i = updates
     spinner.text = `Wait for feed update sync at index ${i}`
     // await waitSyncing(beeWriter, tag.uid)
-    const syncTime = argv['sync-time'] * 1000
     const { measuredTime: syncingTime } = await measureAync(async () => await new Promise(resolve => setTimeout(resolve, syncTime)))
 
     spinner.text = `Download feed for index ${i}`
