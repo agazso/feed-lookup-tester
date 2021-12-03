@@ -238,8 +238,8 @@ function sleep(waitTime: number) {
     downloadIterationIndex = 0
 
     const i = updates
-    console.log(`Wait for feed update sync at index ${i}`)
-    const { measuredTime: syncingTime } = await measureAync(async () => await new Promise(resolve => setTimeout(resolve, syncTime)))
+    console.log(`Waiting for ${Math.floor(syncTime / 1000)} secs`)
+    await sleep(syncTime)
 
     console.log(`Download feed for index ${i}`)
 
