@@ -33,17 +33,21 @@ function fetchDataCheck(
   expectedFeedRef: ChunkReference,
   expectedFeedIndex: number,
   beeNodeUrl: string
-): false | string {
-  const beeFeedIndex = feedIndexBeeResponse(expectedFeedIndex)
-  const feedRef =  Utils.bytesToHex(expectedFeedRef)
+): number {
+  // const beeFeedIndex = feedIndexBeeResponse(expectedFeedIndex)
+  // const feedRef =  Utils.bytesToHex(expectedFeedRef)
 
-  if(updateFetch.feedIndex !== beeFeedIndex || feedRef !== updateFetch.reference) {
-    return `\tDownloaded feed payload or index has not the expected result at Bee node "${beeNodeUrl}".`
-      + `\n\t\tindex| expected: "${beeFeedIndex}" got: "${updateFetch.feedIndex}"`
-      + `\n\t\treference| expected: "${feedRef}" got: "${updateFetch.reference}"`
+  // if(updateFetch.feedIndex !== beeFeedIndex || feedRef !== updateFetch.reference) {
+  //   return `\tDownloaded feed payload or index has not the expected result at Bee node "${beeNodeUrl}".`
+  //     + `\n\t\tindex| expected: "${beeFeedIndex}" got: "${updateFetch.feedIndex}"`
+  //     + `\n\t\treference| expected: "${feedRef}" got: "${updateFetch.reference}"`
+  // }
+  const feedIndex = parseInt(updateFetch.feedIndex, 16)
+  if (feedIndex !== expectedFeedIndex) {
+    console.error(`Feed index mismatch on ${beeNodeUrl}`, { feedIndex, expectedFeedIndex })
   }
 
-  return false
+  return feedIndex
 }
 
 async function waitSyncing(bee: Bee, tagUid: number): Promise<void | never> {
@@ -132,6 +136,24 @@ function sleep(waitTime: number) {
   return new Promise(resolve => setTimeout(resolve, waitTime))
 }
 
+function makeDownloadReport(downloads: MeasureAyncReturnable[], beeReaderUrls: string[], reference: ChunkReference, index: number) {
+  const downloadTimes: number[] = []
+
+  // check data correctness
+  const checks: number[] = []
+  downloads.forEach((download, j) => {
+    downloadTimes.push(download.measuredTime)
+
+    const url = beeReaderUrls[j]
+    checks.push(fetchDataCheck(download.returnValue, reference, index, url))
+  })
+
+  return {
+    downloadTimes,
+    checks,
+  }
+}
+
 // eslint-disable-next-line @typescript-eslint/no-extra-semi
 ;(async function root() {
   const argv = await yargs(process.argv.slice(2))
@@ -190,6 +212,12 @@ function sleep(waitTime: number) {
       describe: 'Time to wait until data is synced in seconds',
       default: 40
     })
+    .option('wait-time', {
+      alias: 'w',
+      type: 'number',
+      describe: 'Time to wait between updates in seconds',
+      default: 3,
+    })
     .help('h')
     .alias('h', 'help').epilog(`Testing Ethereum Swarm Feed lookup time`).argv
 
@@ -206,6 +234,7 @@ function sleep(waitTime: number) {
     throw new Error(`Got different amount of bee writer ${beeWriterUrls.length} than stamps ${stamps.length}`)
   }
   const syncTime = argv['sync-time'] * 1000
+  const waitTime = argv['wait-time'] * 1000
 
   const beeWriters: Bee[] = beeWriterUrls.map(url => new Bee(url, { onRequest, onResponse }))
   const beeReaders: Bee[] = beeReaderUrls.map(url => new Bee(url))
@@ -225,8 +254,6 @@ function sleep(waitTime: number) {
   const reference = makeBytes(32) // all zeroes
   let downloadIterationIndex = 0
 
-  // const spinner = ora()
-  // spinner.start()
   for(let i = 0; i < updates; i++) {
     console.log(`Upload feed for index ${i}`)
 
@@ -238,46 +265,30 @@ function sleep(waitTime: number) {
       return measureAync(() => feedWriterUpload(feedWriter, stamp, reference))
     }))
     const uploadTimes = uploads.map(upload => upload.measuredTime)
-    const waitTime = 3000
     console.log(`Waiting for ${Math.floor(waitTime / 1000)} secs`)
     await sleep(waitTime)
   }
   {
-    // if(++downloadIterationIndex === downloadIteration) {
     downloadIterationIndex = 0
 
-    const i = updates - 1
+    const index = updates - 1
     console.log(`Waiting for ${Math.floor(syncTime / 1000)} secs`)
     await sleep(syncTime)
 
-    console.log(`Download feed for index ${i}`)
+    console.log(`Download feed for index ${index}`)
 
     const downloads = await Promise.all(feedReaders.map(feedReader => measureAync(() => feedReader.download())))
-    const downloadTimes: number[] = []
+    const { checks, downloadTimes } = makeDownloadReport(downloads, beeReaderUrls, reference, index)
 
-    // check data correctness
-    const checks: (string | false)[] = []
-    downloads.forEach((download, j) => {
-      downloadTimes.push(download.measuredTime)
+    const reportLine = [report.startDate, report.topic, index, ...checks, ...downloadTimes].join(',') + '\n'
+    console.log(reportLine)
+    fs.appendFileSync('report.csv', reportLine)
 
-      const url = beeReaderUrls[j]
-      checks.push(fetchDataCheck(download.returnValue, reference, i, url))
-    })
-
-    console.log(`Feed update ${i} fetch was successful`)
-
-    console.log(downloadTimes)
-    fs.appendFileSync('report.csv', [report.startDate, report.topic, updates, ...downloadTimes].join(',') + '\n')
-
-    // console.log(beeWriterResults(beeWriterUrls, uploadTimes)
-    //   + `\n\tSyncing time: ${syncingTime / 1000}s\n`
-    //   + beeReaderResults(beeReaderUrls, uploadTimes)
-    // )
-
-    const errors = checks.filter(check => check)
-    if(errors.length > 0) {
-      console.error(`Some bee nodes couldn't fetch the Feed as expected.\n`
-        + errors.join('\n'))
+    if (!checks.every(value => value === index)) {
+      await sleep(waitTime)
+      const downloadsAgain = await Promise.all(feedReaders.map(feedReader => measureAync(() => feedReader.download())))
+      const { checks, downloadTimes } = makeDownloadReport(downloadsAgain, beeReaderUrls, reference, index)
+      console.log('After check again: ', {checks, downloadTimes})
     }
 
     incrementBytes(reference)
