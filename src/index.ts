@@ -245,10 +245,12 @@ function makeDownloadReport(downloads: MeasureAyncReturnable[], beeReaderUrls: s
   // const topic = randomByteArray(32, topicSeed)
   const topic = crypto.randomBytes(32)
   report.topic = Utils.bytesToHex(topic)
-  console.debug({ report })
 
   const feedWriters = beeWriters.map(beeWriter => beeWriter.makeFeedWriter('sequence', topic, testIdentity.privateKey))
   const feedReaders = beeReaders.map(beeReader => beeReader.makeFeedReader('sequence', topic, testIdentity.address))
+
+  const manifestReference = await beeWriters[0].createFeedManifest(stamps[0], 'sequence', topic, feedWriters[0].owner)
+  console.log({ report, manifestReference })
 
   // reference that the feed refers to
   const reference = makeBytes(32) // all zeroes
@@ -267,6 +269,7 @@ function makeDownloadReport(downloads: MeasureAyncReturnable[], beeReaderUrls: s
     const uploadTimes = uploads.map(upload => upload.measuredTime)
     console.log(`Waiting for ${Math.floor(waitTime / 1000)} secs`)
     await sleep(waitTime)
+    incrementBytes(reference)
   }
   {
     downloadIterationIndex = 0
@@ -291,6 +294,5 @@ function makeDownloadReport(downloads: MeasureAyncReturnable[], beeReaderUrls: s
       console.log('After check again: ', {checks, downloadTimes})
     }
 
-    incrementBytes(reference)
   }
 })().catch(error => console.error({ error }))
