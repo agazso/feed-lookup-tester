@@ -287,7 +287,7 @@ function makeDownloadReport(downloads: MeasureAyncReturnable[], beeReaderUrls: s
     console.log(reportLine)
     fs.appendFileSync('report.csv', reportLine)
 
-    if (!checks.every(value => value === index)) {
+    while (!checks.every(value => value === index)) {
       await sleep(waitTime)
       const downloadsAgain = await Promise.all(feedReaders.map(feedReader => measureAync(() => feedReader.download())))
       const { checks, downloadTimes } = makeDownloadReport(downloadsAgain, beeReaderUrls, reference, index)
