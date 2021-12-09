@@ -281,7 +281,7 @@ function makeDownloadReport(downloads: MeasureAyncReturnable[], beeReaderUrls: s
     console.log(`Download feed for index ${index}`)
 
     const downloads = await Promise.all(feedReaders.map(feedReader => measureAync(() => feedReader.download())))
-    const { checks, downloadTimes } = makeDownloadReport(downloads, beeReaderUrls, reference, index)
+    let { checks, downloadTimes } = makeDownloadReport(downloads, beeReaderUrls, reference, index)
 
     const reportLine = [report.startDate, report.topic, index, ...checks, ...downloadTimes].join(',') + '\n'
     console.log(reportLine)
@@ -290,7 +290,8 @@ function makeDownloadReport(downloads: MeasureAyncReturnable[], beeReaderUrls: s
     while (!checks.every(value => value === index)) {
       await sleep(waitTime)
       const downloadsAgain = await Promise.all(feedReaders.map(feedReader => measureAync(() => feedReader.download())))
-      const { checks, downloadTimes } = makeDownloadReport(downloadsAgain, beeReaderUrls, reference, index)
+      const again = makeDownloadReport(downloadsAgain, beeReaderUrls, reference, index)
+      checks = again.checks
       console.log('After check again: ', {checks, downloadTimes})
     }
 
