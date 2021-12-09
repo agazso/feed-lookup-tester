@@ -292,6 +292,7 @@ function makeDownloadReport(downloads: MeasureAyncReturnable[], beeReaderUrls: s
       const downloadsAgain = await Promise.all(feedReaders.map(feedReader => measureAync(() => feedReader.download())))
       const again = makeDownloadReport(downloadsAgain, beeReaderUrls, reference, index)
       checks = again.checks
+      downloadTimes = again.downloadTimes
       console.log('After check again: ', {checks, downloadTimes})
     }
 
